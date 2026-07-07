@@ -1,11 +1,7 @@
 // Blynk Credentials
-// #define BLYNK_TEMPLATE_ID "your_template_id"
-// #define BLYNK_TEMPLATE_NAME "Smart Room SMA"
-// #define BLYNK_AUTH_TOKEN "your_auth_token"
-
-#define BLYNK_TEMPLATE_ID "TMPL6pw-KPHta"
+#define BLYNK_TEMPLATE_ID "your_template_id"
 #define BLYNK_TEMPLATE_NAME "Smart Room SMA"
-#define BLYNK_AUTH_TOKEN "K7gAemOl-gG9R7AQ5lolYqUTRvgg8C9w"
+#define BLYNK_AUTH_TOKEN "your_auth_token"
 
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -15,6 +11,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Preferences.h>
+#include <time.h>
 
 #define BLYNK_FIRMWARE_VERSION "0.1.0"
 #define BLYNK_PRINT Serial
@@ -22,10 +19,8 @@
 // #define APP_DEBUG
 
 // WiFi Credentials
-// char ssid[] = "your_wifi_ssid";
-// char pass[] = "your_wifi_password";
-char ssid[] = "MIO";
-char pass[] = "GOMEZ123";
+char ssid[] = "your_wifi_ssid";
+char pass[] = "your_wifi_password";
 
 // Temporary storage for new WiFi credentials from Blynk
 String newSsid = "";
@@ -54,10 +49,25 @@ Preferences preferences;
 #define VPIN_WIFI_SSID V4 // WiFi SSID Input
 #define VPIN_WIFI_PASS V5 // WiFi Password Input
 #define VPIN_WIFI_SAVE V6 // WiFi Save Trigger
+#define VPIN_SCH_ENABLE V7  // Schedule Enable/Disable
+#define VPIN_SCH_ON V8      // Schedule ON Time (HH:MM)
+#define VPIN_SCH_OFF V9     // Schedule OFF Time (HH:MM)
+#define VPIN_SCH_UPDATE V10 // Schedule Update Trigger
 
 // Global Variables
 float temp, hum;
 int relayState = 0;
+
+// Schedule Variables
+int scheduleEnabled = 0;
+String scheduleOnTime = "00:00";
+String scheduleOffTime = "00:00";
+bool scheduleActionDone = false;
+char currentTime[6];
+char lastCheckedMinute[6] = "";
+
+// NTP Time
+struct tm timeinfo;
 
 // Class Declaration
 BlynkTimer timer;
@@ -86,7 +96,7 @@ BLYNK_WRITE(VPIN_WIFI_SAVE) {
       Serial.println("SSID: " + newSsid);
 
       // Simpan ke Preferences
-      preferences.begin("wifi", false);
+      preferences.begin("config", false);
       preferences.putString("ssid", newSsid);
       preferences.putString("pass", newPass);
       preferences.end();
@@ -96,7 +106,6 @@ BLYNK_WRITE(VPIN_WIFI_SAVE) {
       ESP.restart();
     } else {
       Serial.println("Error: SSID or Password is empty. Fill both first!");
-      Blynk.virtualWrite(VPIN_STATUS, "WiFi save failed: empty field!");
     }
   }
 }
@@ -121,6 +130,107 @@ BLYNK_WRITE(VPIN_RELAY) {
   updateOLED();
 }
 
+// Schedule Enable/Disable Switch (V7)
+BLYNK_WRITE(VPIN_SCH_ENABLE) {
+  scheduleEnabled = param.asInt();
+  Serial.print("Schedule mode: ");
+  Serial.println(scheduleEnabled? "ENABLED" : "DISABLED");
+
+  preferences.begin("config", false);
+  preferences.putInt("sch_enable", scheduleEnabled);
+  preferences.end();
+
+  Blynk.virtualWrite(VPIN_SCH_ENABLE, scheduleEnabled);
+
+  updateOLED();
+}
+
+// Schedule ON Time Input (V8)
+BLYNK_WRITE(VPIN_SCH_ON) {
+  scheduleOnTime = param.asStr();
+  Serial.println("Schedule ON Time: " + scheduleOnTime);
+}
+
+// Schedule OFF Time Input (V9)
+BLYNK_WRITE(VPIN_SCH_OFF) {
+  scheduleOffTime = param.asStr();
+  Serial.println("Schedule OFF Time: " + scheduleOffTime);
+}
+
+// Schedule Update Trigger Button (V10)
+BLYNK_WRITE(VPIN_SCH_UPDATE) {
+  int trigger = param.asInt();
+  if (trigger == 1) {
+    Serial.println("Saving schedule to Preferences...");
+    Serial.println("ON: " + scheduleOnTime + ", OFF: " + scheduleOffTime);
+
+    preferences.begin("config", false);
+    preferences.putString("sch_on", scheduleOnTime);
+    preferences.putString("sch_off", scheduleOffTime);
+    preferences.end();
+
+    Serial.println("Schedule saved!");
+    scheduleActionDone = false;
+  }
+}
+
+// Load schedule from Preferences
+void loadSchedule() {
+  preferences.begin("config", true);
+  scheduleEnabled = preferences.getInt("sch_enable", 0);
+  scheduleOnTime = preferences.getString("sch_on", "00:00");
+  scheduleOffTime = preferences.getString("sch_off", "00:00");
+  preferences.end();
+
+  Serial.println("Schedule loaded from Preferences:");
+  Serial.print("  Mode: "); Serial.println(scheduleEnabled? "ENABLED" : "DISABLED");
+  Serial.print("  ON Time: "); Serial.println(scheduleOnTime);
+  Serial.print("  OFF Time: "); Serial.println(scheduleOffTime);
+
+  // Sync to Blynk dashboard
+  Blynk.virtualWrite(VPIN_SCH_ENABLE, scheduleEnabled);
+  Blynk.virtualWrite(VPIN_SCH_ON, scheduleOnTime);
+  Blynk.virtualWrite(VPIN_SCH_OFF, scheduleOffTime);
+}
+
+// Check schedule every minute
+void checkSchedule() {
+  if (!scheduleEnabled) {
+    return;
+  }
+
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Failed to obtain NTP time");
+    return;
+  }
+
+  snprintf(currentTime, sizeof(currentTime), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+
+  // Only check once per minute
+  if (strcmp(currentTime, lastCheckedMinute) == 0) {
+    return;
+  }
+  strncpy(lastCheckedMinute, currentTime, sizeof(lastCheckedMinute));
+
+  Serial.print("Schedule check at: ");
+  Serial.println(currentTime);
+
+  if (strcmp(currentTime, scheduleOnTime.c_str()) == 0) {
+    Serial.println("Schedule: ON time matched! Turning relay ON.");
+    digitalWrite(RELAY_PIN, HIGH);
+    relayState = 1;
+    Blynk.virtualWrite(VPIN_RELAY, relayState);
+  }
+  else if (strcmp(currentTime, scheduleOffTime.c_str()) == 0) {
+    Serial.println("Schedule: OFF time matched! Turning relay OFF.");
+    digitalWrite(RELAY_PIN, LOW);
+    relayState = 0;
+    Blynk.virtualWrite(VPIN_RELAY, relayState);
+  }
+  
+  updateOLED();
+}
+
 // Update OLED Display
 void updateOLED() {
   display.clearDisplay();
@@ -132,30 +242,38 @@ void updateOLED() {
   display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
 
   display.setCursor(0, 16);
-  display.print("Suhu   : ");
   if (isnan(temp)) {
-    display.println("-- C (error)");
+    display.print("-- C | ");
   } else {
     display.print(temp, 1);
-    display.println(" C");
+    display.print(" C | ");
   }
 
-  display.setCursor(0, 28);
-  display.print("Lembab : ");
   if (isnan(hum)) {
-    display.println("-- % (error)");
+    display.print("-- % | ");
   } else {
     display.print(hum, 1);
-    display.println(" %");
+    display.print(" % | ");
   }
-
-  display.setCursor(0, 40);
-  display.print("Relay  : ");
+  
   display.println(relayState ? "ON" : "OFF");
-
-  display.setCursor(0, 52);
-  display.print("Connected to  : ");
+  
+  display.setCursor(0, 28);
+  display.print("WiFi : ");
   display.println(WiFi.SSID());
+  
+  if (scheduleEnabled) {
+    display.setCursor(0, 40);
+    display.print("Time : ");
+    display.println(String(currentTime));
+  
+    display.setCursor(0, 52);
+    display.print("ON:");
+    display.print(scheduleOnTime);
+    display.print(" | ");
+    display.print("OFF:");
+    display.println(scheduleOffTime);
+  }
 
   display.display();
 }
@@ -272,7 +390,7 @@ void setup() {
   display.display();
 
   // Baca WiFi credentials dari Preferences (NVS)
-  preferences.begin("wifi", true);
+  preferences.begin("config", true);
   String savedSsid = preferences.getString("ssid", "");
   String savedPass = preferences.getString("pass", "");
   preferences.end();
@@ -291,12 +409,35 @@ void setup() {
     Serial.println("No saved WiFi credentials. Using hardcoded fallback.");
   }
 
+  // Init NTP time sync (WIB = UTC+7)
+  configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+  Serial.println("Waiting for NTP time sync...");
+  int ntpRetry = 0;
+  while (!getLocalTime(&timeinfo) && ntpRetry < 20) {
+    delay(500);
+    Serial.print(".");
+    ntpRetry++;
+  }
+  if (getLocalTime(&timeinfo)) {
+    Serial.println("\nNTP time synced!");
+    Serial.print("Current time: ");
+    Serial.println(&timeinfo, "%Y-%m-%d %H:%M:%S");
+  } else {
+    Serial.println("\nFailed to sync NTP time, will retry later.");
+  }
+
   // Blynk Setup
   Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
   timer.setInterval(SEND_INTERVAL, monitoring);
 
   // Sync current SSID to Blynk dashboard
   Blynk.virtualWrite(VPIN_WIFI_SSID, ssid);
+
+  // Load schedule from Preferences and sync to dashboard
+  loadSchedule();
+
+  // Register schedule checker every 60 seconds
+  timer.setInterval(60000L, checkSchedule);
 
   // Initial OLED Update
   updateOLED();

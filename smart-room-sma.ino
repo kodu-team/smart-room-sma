@@ -19,8 +19,8 @@
 // #define APP_DEBUG
 
 // WiFi Credentials
-char ssid[] = "your_wifi_ssid";
-char pass[] = "your_wifi_password";
+char ssid[33] = "your_wifi_ssid";
+char pass[65] = "your_wifi_password";
 
 // Temporary storage for new WiFi credentials from Blynk
 String newSsid = "";

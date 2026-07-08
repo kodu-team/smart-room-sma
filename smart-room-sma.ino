@@ -30,16 +30,16 @@ String newPass = "";
 Preferences preferences;
 
 // Pinout & Constants
-#define DHT_PIN 4
-#define RELAY_PIN 5
+#define DHT_PIN 3
+#define RELAY_PIN 7
 #define DHTTYPE DHT22
-#define HIGH_TEMP 35
-#define PB1_PIN 6
-#define PB2_PIN 7
+#define HIGH_TEMP 33
+#define PB1_PIN 0
+#define PB2_PIN 1
 #define OLED_SDA 8
 #define OLED_SCL 9
 #define SEND_INTERVAL 5000L
-#define BUZZER_PIN 10
+#define BUZZER_PIN 6
 
 // Virtual Pin Blynk
 #define VPIN_TEMP V0 // Temperature
@@ -57,6 +57,7 @@ Preferences preferences;
 // Global Variables
 float temp, hum;
 int relayState = 0;
+bool relayActiveLow = true; // Relay active LOW
 
 // Schedule Variables
 int scheduleEnabled = 0;
@@ -116,12 +117,12 @@ BLYNK_WRITE(VPIN_RELAY) {
 
   if (relayState == 1) {
     Serial.println("Relay ON via Blynk");
-    digitalWrite(RELAY_PIN, HIGH);
+    digitalWrite(RELAY_PIN, relayActiveLow ? LOW : HIGH);
     Serial.print("relayState = ");
     Serial.println(relayState);
   } else {
     Serial.println("Relay OFF via Blynk");
-    digitalWrite(RELAY_PIN, LOW);
+    digitalWrite(RELAY_PIN, relayActiveLow ? HIGH : LOW);
     Serial.print("relayState = ");
     Serial.println(relayState);
   }
@@ -217,13 +218,13 @@ void checkSchedule() {
 
   if (strcmp(currentTime, scheduleOnTime.c_str()) == 0) {
     Serial.println("Schedule: ON time matched! Turning relay ON.");
-    digitalWrite(RELAY_PIN, HIGH);
+    digitalWrite(RELAY_PIN, relayActiveLow ? LOW : HIGH);
     relayState = 1;
     Blynk.virtualWrite(VPIN_RELAY, relayState);
   }
   else if (strcmp(currentTime, scheduleOffTime.c_str()) == 0) {
     Serial.println("Schedule: OFF time matched! Turning relay OFF.");
-    digitalWrite(RELAY_PIN, LOW);
+    digitalWrite(RELAY_PIN, relayActiveLow ? HIGH : LOW);
     relayState = 0;
     Blynk.virtualWrite(VPIN_RELAY, relayState);
   }
@@ -296,7 +297,7 @@ void handleManualButtons() {
     lastPb1State = pb1State;
     if (pb1State == LOW) {
       Serial.println("Relay ON via PB1");
-      digitalWrite(RELAY_PIN, HIGH);
+      digitalWrite(RELAY_PIN, relayActiveLow ? LOW : HIGH);
       relayState = 1;
 
       // Sync with Blynk app
@@ -311,7 +312,7 @@ void handleManualButtons() {
     lastPb2State = pb2State;
     if (pb2State == LOW) {
       Serial.println("Relay OFF via PB2");
-      digitalWrite(RELAY_PIN, LOW);
+      digitalWrite(RELAY_PIN, relayActiveLow ? HIGH : LOW);
       relayState = 0;
       
       // Sync with Blynk app
@@ -408,6 +409,10 @@ void setup() {
   } else {
     Serial.println("No saved WiFi credentials. Using hardcoded fallback.");
   }
+  // Connect to WiFi
+  Serial.println("Connecting to WiFi: " + String(ssid));
+  WiFi.begin(ssid, pass);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
 
   // Init NTP time sync (WIB = UTC+7)
   configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");

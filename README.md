@@ -36,24 +36,24 @@ Sistem monitoring & kontrol ruangan berbasis IoT menggunakan **ESP32-C3 Mini**, 
 | --- | --- | --- |
 | DHT22 | VCC | 3V3 |
 | DHT22 | GND | GND |
-| DHT22 | DATA | GPIO 4 |
+| DHT22 | DATA | GPIO 3 |
 | Relay | VCC | 5V / VIN |
 | Relay | GND | GND |
-| Relay | IN | GPIO 5 |
-| Push Button PB1 | satu kaki | GPIO 6 |
+| Relay | IN | GPIO 7 |
+| Push Button PB1 | satu kaki | GPIO 0 |
 | Push Button PB1 | kaki lain | GND |
-| Push Button PB2 | satu kaki | GPIO 7 |
+| Push Button PB2 | satu kaki | GPIO 1 |
 | Push Button PB2 | kaki lain | GND |
 | OLED | VCC | 3V3 |
 | OLED | GND | GND |
 | OLED | SDA | GPIO 8 |
 | OLED | SCL | GPIO 9 |
-| Buzzer Piezo | + | GPIO 10 |
+| Buzzer Piezo | + | GPIO 6 |
 | Buzzer Piezo | - | GND |
 
 > ⚠️ Beberapa varian board ESP32-C3 Mini punya pin default I2C atau strapping pin berbeda. Jika GPIO 8/9 dipakai board Anda untuk fungsi lain (mis. boot mode), sesuaikan `OLED_SDA` / `OLED_SCL` di kode dan pastikan tidak bentrok saat upload.
 > Tombol manual memakai `INPUT_PULLUP`, jadi saat tombol ditekan pin akan menjadi LOW. Jika Anda menggunakan skema berbeda, sesuaikan pin dan logika di kode.
-> Jika modul relay Anda aktif LOW, sesuaikan logika `digitalWrite()` pada bagian kontrol relay dan tombol manual sesuai kebutuhan hardware.
+> **Default relay adalah active LOW** (`relayActiveLow = true` di kode). Jika modul relay Anda active HIGH, ubah variabel `relayActiveLow` menjadi `false` di kode.
 
 ## Instalasi Arduino IDE
 
@@ -126,19 +126,19 @@ Sebelum upload, ubah bagian berikut di `smart-room-sma.ino`:
 char ssid[] = "NAMA_WIFI_ANDA";
 char pass[] = "PASSWORD_WIFI_ANDA";
 
-#define DHT_PIN 4
-#define RELAY_PIN 5
+#define DHT_PIN 3
+#define RELAY_PIN 7
 #define DHTTYPE DHT22
-#define HIGH_TEMP 35
-#define PB1_PIN 6
-#define PB2_PIN 7
+#define HIGH_TEMP 33
+#define PB1_PIN 0
+#define PB2_PIN 1
 #define OLED_SDA 8
 #define OLED_SCL 9
 #define SEND_INTERVAL 5000L
-#define BUZZER_PIN 10
+#define BUZZER_PIN 6
 ```
 
-Jika ingin mengubah ambang alarm, sesuaikan nilai `HIGH_TEMP` di awal kode. Pastikan `BUZZER_PIN` dan pin OLED juga sesuai dengan koneksi hardware Anda.
+Jika ingin mengubah ambang alarm, sesuaikan nilai `HIGH_TEMP` di awal kode (default: 33°C). Pastikan `BUZZER_PIN` dan pin OLED juga sesuai dengan koneksi hardware Anda.
 
 ### Fitur Penyimpanan WiFi Credentials
 
